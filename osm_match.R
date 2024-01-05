@@ -240,10 +240,12 @@ for (state_nr in 1:length(ger_state_csvs)) {
 }
 
 half <- round(nrow(all_roads)/2)
+first_half <- all_roads[1:half]
+second_half <- all_roads[half+1:nrow(all_roads)]
 
 # write first half of data into file
-fwrite(all_roads[1:half], paste(folder, "road_all1.csv", sep = ""))
+fwrite(first_half, paste(folder, "road_all1.csv", sep = ""))
 
 # write second half of  data into file
-fwrite(all_roads[half+1:nrow(all_roads)], paste(folder, "road_all2.csv", sep = ""))
+fwrite(second_half, paste(folder, "road_all2.csv", sep = ""))
 
