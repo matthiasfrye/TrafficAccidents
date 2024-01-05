@@ -121,7 +121,7 @@ for (state_nr in 1:length(ger_state_filters)) {
   ger_sf$ymax <- 0
 
   # for all roads
-  for (i in 1:10) {
+  for (i in 1:nrow(ger_sf)) {
     
     #calculate bounding box and save to dataframe
     coords <- st_bbox(ger_sf[i,])
@@ -153,7 +153,7 @@ for (state_nr in 1:length(ger_state_filters)) {
   surfaces <- levels(fact[1])
 
   # for all accident locations
-  for(i in 1:10) {
+  for(i in 1:nrow(roads)) {
     
     # create a small box around accident location and convert coordinate reference system
     lon <- roads$WGSX[i]
@@ -207,17 +207,43 @@ for (state_nr in 1:length(ger_state_filters)) {
 
 }
 
-# Concatenate all files into 1
-# Load first file 
-all_roads <- fread(paste(folder, "road_", ger_state_csvs[1], ".csv", sep = ""))
+
+# cncatenate all files, initialize allroads
+all_roads <- data.frame()
 
 # for each state load and append file
-for (state_nr in 2:length(ger_state_csvs)) {
-  roads <- fread(paste(folder, "road_", ger_state_csvs[state_nr], ".csv", sep = ""))
-  all_roads <- rbind(all_roads, roads)
+for (state_nr in 1:length(ger_state_csvs)) {
+
+    # read file
+    roads <- fread(paste(folder, "road_", ger_state_csvs[state_nr], ".csv", sep = ""))
+
+    # round all variables
+    roads <- roads |> 
+      mutate(highway = round(highway),
+             lanes = round(lanes),
+             surface = round(surface),
+             maxspeed = round(maxspeed))
+
+    # read gpkg file and convert to sf
+    ger_st <- st_read(paste(folder, ger_state_pbfs[state_nr], "-latest.gpkg", sep = ""), layer="lines") 
+    ger_sf <- sf::st_as_sf(ger_st)
+    
+    # what are the surface types?
+    fact <- factor(ger_sf$surface)
+    surfaces <- levels(fact[1])
+    
+    # convert to character string
+    roads$surface <- surfaces[roads$surface]
+    
+    # combine with previous data
+    all_roads <- rbind(all_roads, roads)
 }
 
-# write complete data into file
-fwrite(all_roads, paste(folder, "road_all.csv", sep = ""))
+half <- round(nrow(all_roads)/2)
 
-  
+# write first half of data into file
+fwrite(all_roads[1:half], paste(folder, "road_all1.csv", sep = ""))
+
+# write second half of  data into file
+fwrite(all_roads[half+1:nrow(all_roads)], paste(folder, "road_all2.csv", sep = ""))
+
