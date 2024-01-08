@@ -218,6 +218,8 @@ for (j in 0:120) {
 roads_all$highway[roads_all$highway %in% c("busway", "bridleway", "steps", "no", "proposed", "abandoned", 
                                            "bus_stop", "corridor", "elevator", "raceway", "rest_area")] <- "other" 
 roads_all$highway[is.na(roads_all$highway)] <- "unknown" 
+roads_all <- roads_all |> select(-highway_n)
+
 
 # correct some uncommon surface
 roads_all$surface[roads_all$surface=="asphalt:lanes"] <- "asphalt"
@@ -253,6 +255,13 @@ roads_all$lanes[roads_all$lanes==70] <- 2
 roads_all$lanes[roads_all$lanes==1.5] <- 2
 roads_all$lanes[roads_all$lanes==0] <- 1
 
+# set lanes if is.na
+roads_all$lanes[is.na(roads_all$lanes) & 
+                  (roads_all$highway == "motorway")] <- 4
+roads_all$lanes[is.na(roads_all$lanes) & 
+                  (roads_all$highway %in% c("trunk", "primary", "secondary", "tertiary"))] <- 2
+roads_all$lanes[is.na(roads_all$lanes)] <- 1
+
 # correct some unusual maxspeed values
 roads_all$maxspeed[roads_all$maxspeed=="none"] <- 250
 roads_all$maxspeed[roads_all$maxspeed=="signals"] <- 50
@@ -271,6 +280,13 @@ roads_all$maxspeed[roads_all$maxspeed=="maxspeed:foreward=100, maxspeed:backward
 roads_all$maxspeed[roads_all$maxspeed=="maxspeed:forward=50 + maxspeed:backward=70"] <- 50
 roads_all$maxspeed[roads_all$maxspeed=="maxspeed:forward=70"] <- 70
 
+# set maxspeed if is.na
+roads_all$maxspeed[is.na(roads_all$maxspeed) & 
+                     (roads_all$highway %in% c("motorway", "trunk", "primary"))] <- 100
+roads_all$maxspeed[is.na(roads_all$maxspeed) & 
+                     (roads_all$highway == "secondary")] <- 70
+roads_all$maxspeed[is.na(roads_all$maxspeed)] <- 50
+
 
 # correct some unusual lit values
 roads_all$lit[roads_all$lit %in% c("2", "no;yes", "disused")] <- NA
@@ -288,8 +304,7 @@ roads_all$oneway[is.na(roads_all$oneway)] <- "unknown"
 roads_all$bridge[roads_all$bridge %in% c("viaduct", "movable", "cantilever")] <- "yes"
 roads_all$bridge[is.na(roads_all$bridge)] <- "no"
 
-
-# Split data int two files
+# Split data int two files, so that files have less than 32MB
 nrow <- nrow(roads_all)
 half <- round(nrow/2)
 
@@ -303,3 +318,4 @@ fwrite(first_half, paste(folder, "road_all1.csv", sep = ""))
 # write second half of  data into file
 fwrite(second_half, paste(folder, "road_all2.csv", sep = ""))
 
+rm(first_half, second_half)
