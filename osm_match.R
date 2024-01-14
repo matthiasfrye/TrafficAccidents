@@ -2,10 +2,15 @@
 # /**                                                                                **/
 # /** Project Traffic Accidents                                                      **/
 # /**                                                                                **/
-# /** Download and macth OSM data with accidents                                     **/
+# /** OpenStreetMap provides useful information about all roads in Germany.          **/
+# /** OpenStreetMap data is provided under the                                       **/
+# /** [Open Database License](openstreetmap.org/copyright)                           **/
+# /** [Geofabrik](https://download.geofabrik.de/) provides data files for download.  **/
 # /**                                                                                **/
+# /** This script downloads OSM data and matches it with traffic accident locations. **/
 # /**                                                                                **/
 # /************************************************************************************/
+
 
 # load libraries
 if(!require(osmextract)) install.packages("osmextract")
@@ -25,7 +30,7 @@ if (!exists("accidents") | !is.data.frame(get("accidents"))) {
 # query string for relevant roads in OSM
 my_vectortranslate <- c(
   # SQL-like query where we select only the following fields
-  "-select", "osm_id, highway, surface, lanes, maxspeed, lit, oneway, bridge" 
+  "-select", "osm_id, highway, lanes, maxspeed, lit, oneway, sidewalk, cycleway " 
 )
 
 folder <- "TrafficAccidents/"
@@ -44,7 +49,7 @@ if (!file.exists(paste(folder,"germany-latest.osm.pbf", sep = ""))) {
 
 # convert germany pbf file to .gpkg file
 osm_gpkg <- oe_vectortranslate(paste(folder, "germany-latest.osm.pbf", sep = ""), 
-                               extra_tags = c("surface", "lanes", "maxspeed", "lit", "oneway", "bridge"),
+                               extra_tags = c("lanes", "maxspeed", "lit", "oneway", "sidewalk", "cycleway"),
                                vectortranslate_options = my_vectortranslate,
                                layer="lines")
 
@@ -82,8 +87,6 @@ for (j in 0:448) {
     print(paste("iteration", as.character(j), "complete"))
 }
 
-fwrite(bbox_all,"bbox")
-
 # copy results to ger_sf
 ger_sf$xmin <- bbox_all$xmin
 ger_sf$xmax <- bbox_all$xmax
@@ -94,21 +97,30 @@ ger_sf$ymax <- bbox_all$ymax
 
 # 11 * 11 * 5879 accidents
 
+
 # select geo coordinates and sort by x cordinate
 points <- accidents |> 
-  group_by(WGSX, WGSY) |>
-  summarize(.groups = "keep") |>
-  select(WGSX, WGSY)|>
+  mutate(key = paste(format(WGSX, digits = 13, scientific = FALSE, trim = TRUE),
+                     format(WGSY, digits = 13, scientific = FALSE, trim = TRUE),
+                     sep = "-")) |>
+  group_by(key) |>
+  summarize(WGSX = first(WGSX),
+            WGSY = first(WGSY),
+            .groups = "keep") |>
+  ungroup() |>
   arrange(WGSX)
 
+# Split accidents into smaller chunks
+# 3 * 7 * 13 * 2579 = 273 * 2579 points exist in accidents
+
 # find all possible values in highway
-highway_factor <- factor(ger_sf$highway)
+highway_levels <- levels(factor(ger_sf$highway))
 
 # put important levels by size
 road_categories <- union( c("motorway", "motorway_link", "trunk", "trunk_link", "primary", "primary_link", 
                             "secondary", "secondary_link", "tertiary", "tertiary_link", "unclassified", 
                              "residential", "living_street", "service", "road"),
-                          levels(highway_factor[1]) )
+                          highway_levels)
 
 # convert to factor with defined levels
 highway_factor <- factor(ger_sf$highway, levels = road_categories)
@@ -120,14 +132,22 @@ rm(highway_factor)
 # initialize variable that collects all road data
 roads_all <- c()
 
-# 121 times
-for (j in 0:120) { 
+# 273 times
+for (j in 0:272) { 
 
   # get portion of points  
-  m <- j * 5879 + 1
-  n <- (j +1) * 5879 
+  m <- j * 2579 + 1
+  n <- (j +1) * 2579 
   points_tmp <- points[m:n,]
-
+  points_tmp$highway <- NA
+  points_tmp$lanes <- NA 
+  points_tmp$maxspeed <- NA 
+  points_tmp$lit <- NA
+  points_tmp$oneway <- NA 
+  points_tmp$sidewalk <- NA 
+  points_tmp$cycleway <- NA
+  
+  # distance for box around accident location
   d <- .0001
  
   # compute min and max of coordinates
@@ -138,7 +158,7 @@ for (j in 0:120) {
   slice_sf <- ger_sf[(ger_sf$xmax >= points_xmin) & (ger_sf$xmin <= points_xmax),]
 
   # for all accident locations  
-  for(i in 1:5879) { 
+  for(i in 1:2579) { 
 
     # create a small box around accident location and convert coordinate reference system
     lon <- points_tmp$WGSX[i]
@@ -162,7 +182,7 @@ for (j in 0:120) {
       osm_data <- st_intersection(possible, bbox)
       
       # if nothing found, make a wider box
-      if (nrow(osm_data) == 0){
+      if (n_roads == 0){
         bbox <- st_sfc(st_polygon(list(rbind(c(lon - d*4, lat - d*4),
                                              c(lon - d*4, lat + d*4),
                                              c(lon + d*4, lat + d*4),
@@ -180,34 +200,37 @@ for (j in 0:120) {
           osm_data <- st_intersection(possible, bbox)
         }
       }  
-      # result could be several roads (e.g. accidents on junctions)
-      # find most important street
-      k <- which.min(osm_data$highway_n)
-      if (!is_empty(k)) { 
+    })
+    
+    # result could be several roads (e.g. accidents on junctions)
+    # find most important street
+    k <- which.min(osm_data$highway_n)
+    if (!is_empty(k)) { 
         
-        # save infrmation of most imprtant road
+        # save information of most imprtant road
         points_tmp$highway[i] <- osm_data$highway[k]
-        points_tmp$highway_n[i] <- osm_data$highway_n[k]
-        points_tmp$surface[i] <- osm_data$surface[k] 
         points_tmp$lanes[i] <- osm_data$lanes[k] 
         points_tmp$maxspeed[i] <- osm_data$maxspeed[k] 
         points_tmp$lit[i] <- osm_data$lit[k] 
         points_tmp$oneway[i] <- osm_data$oneway[k] 
-        points_tmp$bridge[i] <- osm_data$bridge[k] 
-      }
-      else
-      {
+        points_tmp$sidewalk[i] <- osm_data$sidewalk[k] 
+        
+        # check whether tag clceway is != no or cycleway close by
+        points_tmp$cycleway[i] <- ((!is.na(osm_data$cycleway[k]) & 
+                                    !(osm_data$cycleway[k] %in% c("no", "none", "no:lane", "n"))) |
+                                   ("cycleway" %in% osm_data$highway))
+    }
+    else
+    {
         # could not find a road, sett all to NA
         points_tmp$highway[i] <- NA
-        points_tmp$highway_n[i] <- NA
-        points_tmp$surface[i] <- NA 
         points_tmp$lanes[i] <- NA 
         points_tmp$maxspeed[i] <- NA 
         points_tmp$lit[i] <- NA 
         points_tmp$oneway[i] <- NA 
-        points_tmp$bridge[i] <- NA 
-      }
-    })
+        points_tmp$sidewalk[i] <- NA 
+        points_tmp$cycleway[i] <- NA
+    }
   }
   # save results in roads_all
   roads_all <- rbind(roads_all, points_tmp)
@@ -218,37 +241,6 @@ for (j in 0:120) {
 roads_all$highway[roads_all$highway %in% c("busway", "bridleway", "steps", "no", "proposed", "abandoned", 
                                            "bus_stop", "corridor", "elevator", "raceway", "rest_area")] <- "other" 
 roads_all$highway[is.na(roads_all$highway)] <- "unknown" 
-roads_all <- roads_all |> select(-highway_n)
-
-
-# correct some uncommon surface
-roads_all$surface[roads_all$surface=="asphalt:lanes"] <- "asphalt"
-roads_all$surface[roads_all$surface=="concrete:plates"] <- "concrete"
-roads_all$surface[roads_all$surface=="concrete:lanes"] <- "concrete"
-roads_all$surface[roads_all$surface=="concrete_slab"] <- "concrete"
-roads_all$surface[roads_all$surface=="unhewn_cobblestone"] <- "cobblestone"
-roads_all$surface[roads_all$surface=="cobblestone:flattened"] <- "cobblestone"
-roads_all$surface[roads_all$surface=="cobblestone:10"] <- "cobblestone"
-roads_all$surface[roads_all$surface=="asphalt;cobblestone"] <- "cobblestone"
-roads_all$surface[roads_all$surface=="kopfsteinpflaster"] <- "cobblestone"
-roads_all$surface[roads_all$surface=="mixedasphalt;concrete;cobblestone"] <- "cobblestone"
-roads_all$surface[roads_all$surface=="cobblestone;paved"] <- "cobblestone"
-roads_all$surface[roads_all$surface=="cobblestones"] <- "cobblestone"
-roads_all$surface[roads_all$surface=="asphalt;concrete;cobblestone"] <- "cobblestone"
-roads_all$surface[roads_all$surface=="compacted"] <- "gravel"
-roads_all$surface[roads_all$surface=="unpaved"] <- "gravel"
-roads_all$surface[roads_all$surface=="fine_gravel"] <- "gravel"
-roads_all$surface[roads_all$surface=="pebblestone"] <- "gravel"
-roads_all$surface[roads_all$surface=="dirt"] <- "ground"
-roads_all$surface[roads_all$surface=="sand"] <- "ground"
-roads_all$surface[roads_all$surface=="earth"] <- "ground"
-roads_all$surface[roads_all$surface=="mud"] <- "ground"  
-roads_all$surface[roads_all$surface=="paving_stones:lanes"] <- "paving_stones"  
-roads_all$surface[roads_all$surface=="sett;asphalt"] <- "sett"  
-roads_all$surface[roads_all$surface=="paving_stones:lanes"] <- "paving_stones"  
-roads_all$surface[roads_all$surface %in% c("wood", "artificial_turf", "grass", "grass_paver", "metal",
-                                           "sign", "bricks", "chipseal", "survey")] <- "other" 
-roads_all$surface[is.na(roads_all$surface)] <- "unknown" 
 
 # correct some unusual lane values
 roads_all$lanes[roads_all$lanes==70] <- 2
@@ -279,6 +271,7 @@ roads_all$maxspeed[roads_all$maxspeed=="frei"] <- 100
 roads_all$maxspeed[roads_all$maxspeed=="maxspeed:foreward=100, maxspeed:backward=70"] <- 70
 roads_all$maxspeed[roads_all$maxspeed=="maxspeed:forward=50 + maxspeed:backward=70"] <- 50
 roads_all$maxspeed[roads_all$maxspeed=="maxspeed:forward=70"] <- 70
+roads_all$maxspeed[roads_all$maxspeed=="DE:living_street"] <- 7
 
 # set maxspeed if is.na
 roads_all$maxspeed[is.na(roads_all$maxspeed) & 
@@ -300,9 +293,18 @@ roads_all$oneway[roads_all$oneway %in% c("-1", "Neuer Mast")] <- NA
 roads_all$oneway[roads_all$oneway %in% c("reversible", "alternating")] <- "yes"
 roads_all$oneway[is.na(roads_all$oneway)] <- "unknown"
 
-# correct some unusual bridge values
-roads_all$bridge[roads_all$bridge %in% c("viaduct", "movable", "cantilever")] <- "yes"
-roads_all$bridge[is.na(roads_all$bridge)] <- "no"
+# correct some unusual sidewalk values
+roads_all$sidewalk[is.na(roads_all$sidewalk)] <- "unknown"
+roads_all$sidewalk[roads_all$sidewalk %in% c("e", "none")] <- "no"
+roads_all$sidewalk[!(roads_all$sidewalk %in% c("yes", "no"))] <- "yes"
+
+# correct some unusual cycleway values
+roads_all$cycleway[is.na(roads_all$cycleway)] <- "no"
+roads_all$cycleway[roads_all$cycleway == TRUE] <- "yes"
+roads_all$cycleway[roads_all$cycleway == FALSE] <- "no"
+
+# remove the coordinates (key is sufficient)
+roads_all <- roads_all |> select(-WGSX, -WGSY)
 
 # Split data int two files, so that files have less than 32MB
 nrow <- nrow(roads_all)
@@ -319,3 +321,5 @@ fwrite(first_half, paste(folder, "road_all1.csv", sep = ""))
 fwrite(second_half, paste(folder, "road_all2.csv", sep = ""))
 
 rm(first_half, second_half)
+
+
