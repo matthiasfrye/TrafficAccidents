@@ -26,7 +26,7 @@ loading of other data, data analysis and modeling are performed in script
   TrafficAccidents.R
 
 This script alco includes R markdown code to generate the R markdown file
-  TrafficAccidents.spin.Rmd
+  TrafficAccidents.Rmd
   
 and the final report
   TrafficAccidents.pdf
