@@ -2165,6 +2165,14 @@ rm(features, corr)
 
 set.seed(42)
 
+#'
+#' &nbsp;
+#' 
+#' The random forest model is now trained using the features exhibiting 
+#' the highest correlation with the severity variable. 
+#' The training utilizes the dataset with oversampling.
+#'  
+
 # train model with select features
 model_orf <- randomForest(severity ~ collision_with + accident_type + lit + maxspeed + 
                                      with_motorcycle + district_type + with_car + 
